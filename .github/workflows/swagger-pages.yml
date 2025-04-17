@@ -1,0 +1,117 @@
+name: Deploy Swagger Docs to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # Adjust this to your default branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    # Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Setup Go
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    # Install swag (Swagger generator for Go)
+    - name: Install swag
+      run: |
+        go install github.com/swaggo/swag/cmd/swag@latest
+        echo "$HOME/go/bin" >> $GITHUB_PATH
+
+    # Generate Swagger docs
+    - name: Generate Swagger docs
+      run: swag init
+
+    # Setup Swagger UI
+    - name: Download and Setup Swagger UI
+      run: |
+        # Create a temporary directory for Swagger UI files
+        mkdir -p temp_docs
+        
+        # Download Swagger UI
+        curl -L https://github.com/swagger-api/swagger-ui/archive/refs/tags/v5.12.0.tar.gz | tar xz
+        
+        # Copy dist files to temp directory
+        cp -r swagger-ui-5.12.0/dist/* temp_docs/
+        rm -rf swagger-ui-5.12.0
+        
+        # Move generated swagger.json to temp directory
+        mv docs/swagger.json temp_docs/
+        
+        # Remove old docs directory and rename temp to docs
+        rm -rf docs
+        mv temp_docs docs
+        
+        # Create custom index.html
+        cat > docs/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <title>Go Task Manager API - Swagger UI</title>
+            <link rel="stylesheet" type="text/css" href="./swagger-ui.css" />
+            <link rel="icon" type="image/png" href="./favicon-32x32.png" sizes="32x32" />
+            <link rel="icon" type="image/png" href="./favicon-16x16.png" sizes="16x16" />
+            <style>
+              html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+              *, *:before, *:after { box-sizing: inherit; }
+              body { margin: 0; background: #fafafa; }
+            </style>
+          </head>
+          <body>
+            <div id="swagger-ui"></div>
+            <script src="./swagger-ui-bundle.js" charset="UTF-8"> </script>
+            <script src="./swagger-ui-standalone-preset.js" charset="UTF-8"> </script>
+            <script>
+              window.onload = function() {
+                const ui = SwaggerUIBundle({
+                  url: "swagger.json",
+                  dom_id: '#swagger-ui',
+                  deepLinking: true,
+                  presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                  ],
+                  plugins: [
+                    SwaggerUIBundle.plugins.DownloadUrl
+                  ],
+                  layout: "StandaloneLayout"
+                });
+                window.ui = ui;
+              };
+            </script>
+          </body>
+        </html>
+        EOF
+
+    # Configure GitHub Pages
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    # Upload artifact for GitHub Pages
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: docs  # Directory containing the generated Swagger docs
+
+    # Deploy to GitHub Pages
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4 
